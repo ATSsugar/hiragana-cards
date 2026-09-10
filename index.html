@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>히라가나 낱말카드</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#22314f">
+<style>
+  :root{
+    --ink:#22314f;
+    --paper:#f3ede0;
+    --paper-deep:#e8dfc9;
+    --seal:#b6412f;
+    --sumi:#2b2b2b;
+    --line:#c9bfa4;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:var(--paper);
+    font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR","Hiragino Sans",sans-serif;
+    color:var(--sumi);
+    overflow:hidden;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 16px;
+  }
+  .topbar .title{
+    font-size:15px;
+    color:var(--ink);
+    font-weight:700;
+    letter-spacing:1px;
+  }
+  .topbar .count{
+    font-size:12px;
+    color:#6b6455;
+    margin-top:2px;
+  }
+  .exit-btn{
+    border:1px solid var(--seal);
+    color:var(--seal);
+    background:transparent;
+    font-size:13px;
+    padding:8px 14px;
+    border-radius:20px;
+    cursor:pointer;
+  }
+  .exit-btn:active{
+    background:var(--seal);
+    color:#fff;
+  }
+  .stage{
+    height:calc(100% - 64px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    perspective:1400px;
+  }
+  .card{
+    width:min(78vw, 340px);
+    height:min(78vw, 340px);
+    max-height:60vh;
+    position:relative;
+    cursor:pointer;
+    user-select:none;
+  }
+  .card-inner{
+    position:absolute;
+    inset:0;
+    border-radius:16px;
+    background:#fff;
+    border:2px solid var(--ink);
+    box-shadow:6px 6px 0 var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:transform 0.15s ease;
+  }
+  .card:active .card-inner{
+    transform:scale(0.97);
+  }
+  .face-jp{
+    font-size:clamp(70px,20vw,120px);
+    color:var(--ink);
+    line-height:1;
+  }
+  .face-kr{
+    font-size:clamp(48px,14vw,80px);
+    color:var(--seal);
+    font-weight:700;
+  }
+  .progress-dots{
+    position:absolute;
+    bottom:10px;
+    left:0; right:0;
+    text-align:center;
+    font-size:11px;
+    color:#8a8371;
+  }
+  .tap-hint{
+    position:absolute;
+    top:10px;
+    left:0; right:0;
+    text-align:center;
+    font-size:11px;
+    color:#8a8371;
+  }
+  .round-msg{
+    position:fixed;
+    top:0; left:0; right:0; bottom:0;
+    background:rgba(34,49,79,0.92);
+    color:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:10px;
+    font-size:18px;
+    text-align:center;
+    padding:20px;
+  }
+  .round-msg .sub{
+    font-size:13px;
+    color:#cfd6e6;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <div class="title">히라가나 낱말카드</div>
+      <div class="count" id="countLabel"></div>
+    </div>
+    <button class="exit-btn" id="exitBtn">종료</button>
+  </div>
+  <div class="stage">
+    <div class="card" id="card">
+      <div class="card-inner">
+        <div id="cardFace"></div>
+      </div>
+      <div class="tap-hint" id="tapHint"></div>
+    </div>
+  </div>
+
+<script>
+const HIRAGANA = [
+  ["あ","아"],["い","이"],["う","우"],["え","에"],["お","오"],
+  ["か","카"],["き","키"],["く","쿠"],["け","케"],["こ","코"],
+  ["さ","사"],["し","시"],["す","스"],["せ","세"],["そ","소"],
+  ["た","타"],["ち","치"],["つ","쓰"],["て","테"],["と","토"],
+  ["な","나"],["に","니"],["ぬ","누"],["ね","네"],["の","노"],
+  ["は","하"],["ひ","히"],["ふ","후"],["へ","헤"],["ほ","호"],
+  ["ま","마"],["み","미"],["む","무"],["め","메"],["も","모"],
+  ["や","야"],["ゆ","유"],["よ","요"],
+  ["ら","라"],["り","리"],["る","루"],["れ","레"],["ろ","로"],
+  ["わ","와"],["を","오"],
+  ["ん","응"],
+];
+
+let remaining = [];      // indices not yet drawn this round
+let totalCount = HIRAGANA.length;
+let current = null;      // {ch, kr}
+let showingFront = true; // which side is currently displayed
+let revealed = false;    // has the drawn card been flipped yet
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+function startNewRound(){
+  remaining = shuffle([...Array(totalCount).keys()]);
+  drawCard();
+}
+
+function drawCard(){
+  const idx = remaining.pop();
+  const [ch, kr] = HIRAGANA[idx];
+  current = {ch, kr};
+  showingFront = Math.random() < 0.5; // random front(일본어) or back(한글) first
+  revealed = false;
+  render();
+}
+
+function flipCard(){
+  showingFront = !showingFront;
+  revealed = true;
+  render();
+}
+
+function handleTap(){
+  if(!revealed){
+    flipCard();
+  } else {
+    if(remaining.length === 0){
+      showRoundComplete();
+    } else {
+      drawCard();
+    }
+  }
+}
+
+function showRoundComplete(){
+  const overlay = document.createElement('div');
+  overlay.className = 'round-msg';
+  overlay.innerHTML = `
+    <div>전체 ${totalCount}장 완료! 🎉</div>
+    <div class="sub">터치하면 새로운 라운드를 시작해요</div>
+  `;
+  overlay.onclick = ()=>{
+    overlay.remove();
+    startNewRound();
+  };
+  document.body.appendChild(overlay);
+}
+
+function render(){
+  const face = document.getElementById('cardFace');
+  const remainingCountThisRound = remaining.length + 1; // including current undrawn-count context
+  document.getElementById('countLabel').textContent =
+    `남은 카드 ${remaining.length} / ${totalCount}`;
+
+  if(showingFront){
+    face.innerHTML = `<div class="face-jp">${current.ch}</div>`;
+  } else {
+    face.innerHTML = `<div class="face-kr">${current.kr}</div>`;
+  }
+
+  document.getElementById('tapHint').textContent =
+    revealed ? '터치하면 다음 카드' : '터치하면 뒤집기';
+}
+
+document.getElementById('card').addEventListener('click', handleTap);
+
+document.getElementById('exitBtn').addEventListener('click', ()=>{
+  try{
+    window.close();
+  }catch(e){}
+  // window.close() only works if the tab was opened by script;
+  // otherwise show a fallback message.
+  setTimeout(()=>{
+    if(!document.hidden){
+      const overlay = document.createElement('div');
+      overlay.className = 'round-msg';
+      overlay.innerHTML = `<div>브라우저 정책상 자동으로 닫을 수 없어요</div><div class="sub">탭을 직접 닫아주세요</div>`;
+      document.body.appendChild(overlay);
+    }
+  }, 300);
+});
+
+startNewRound();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
