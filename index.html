@@ -165,11 +165,10 @@ const HIRAGANA = [
   ["ん","응"],
 ];
 
-let remaining = [];      // indices not yet drawn this round
+let history = [];        // [{idx, side}] drawn order, side: 'front' | 'back'
+let pos = -1;             // current position in history
+let remaining = [];       // indices not yet drawn this round
 let totalCount = HIRAGANA.length;
-let current = null;      // {ch, kr}
-let showingFront = true; // which side is currently displayed
-let revealed = false;    // has the drawn card been flipped yet
 
 function shuffle(arr){
   const a = arr.slice();
@@ -182,34 +181,52 @@ function shuffle(arr){
 
 function startNewRound(){
   remaining = shuffle([...Array(totalCount).keys()]);
-  drawCard();
+  history = [];
+  pos = -1;
+  drawNext();
 }
 
-function drawCard(){
-  const idx = remaining.pop();
-  const [ch, kr] = HIRAGANA[idx];
-  current = {ch, kr};
-  showingFront = Math.random() < 0.5; // random front(일본어) or back(한글) first
-  revealed = false;
-  render();
-}
-
-function flipCard(){
-  showingFront = !showingFront;
-  revealed = true;
-  render();
-}
-
-function handleTap(){
-  if(!revealed){
-    flipCard();
-  } else {
-    if(remaining.length === 0){
-      showRoundComplete();
-    } else {
-      drawCard();
-    }
+function drawNext(){
+  if(remaining.length === 0){
+    showRoundComplete();
+    return;
   }
+  const idx = remaining.pop();
+  const side = Math.random() < 0.5 ? 'front' : 'back';
+  history.push({idx, side});
+  pos = history.length - 1;
+  render();
+}
+
+function goNext(){ // 왼쪽으로 슬라이드
+  if(pos < history.length - 1){
+    pos++;
+    render();
+  } else {
+    drawNext();
+  }
+}
+
+function goPrev(){ // 오른쪽으로 슬라이드
+  if(pos > 0){
+    pos--;
+    render();
+  } else {
+    bounceCard('right');
+  }
+}
+
+function flipCurrent(){ // 탭
+  const entry = history[pos];
+  entry.side = entry.side === 'front' ? 'back' : 'front';
+  render();
+}
+
+function bounceCard(dir){
+  const card = document.getElementById('card');
+  card.style.transition = 'transform 0.15s ease';
+  card.style.transform = dir === 'right' ? 'translateX(16px)' : 'translateX(-16px)';
+  setTimeout(()=>{ card.style.transform = ''; }, 150);
 }
 
 function showRoundComplete(){
@@ -228,28 +245,67 @@ function showRoundComplete(){
 
 function render(){
   const face = document.getElementById('cardFace');
-  const remainingCountThisRound = remaining.length + 1; // including current undrawn-count context
+  const entry = history[pos];
+  const [ch, kr] = HIRAGANA[entry.idx];
+  const drawnCount = history.length;
   document.getElementById('countLabel').textContent =
-    `남은 카드 ${remaining.length} / ${totalCount}`;
+    `${drawnCount} / ${totalCount} (남은 새 카드 ${remaining.length})`;
 
-  if(showingFront){
-    face.innerHTML = `<div class="face-jp">${current.ch}</div>`;
+  if(entry.side === 'front'){
+    face.innerHTML = `<div class="face-jp">${ch}</div>`;
   } else {
-    face.innerHTML = `<div class="face-kr">${current.kr}</div>`;
+    face.innerHTML = `<div class="face-kr">${kr}</div>`;
   }
 
-  document.getElementById('tapHint').textContent =
-    revealed ? '터치하면 다음 카드' : '터치하면 뒤집기';
+  document.getElementById('tapHint').textContent = '탭: 뒤집기 · ← 다음 · → 이전';
 }
 
-document.getElementById('card').addEventListener('click', handleTap);
+// ---- 탭(뒤집기) vs 스와이프(카드 전환) 구분 ----
+const cardEl = document.getElementById('card');
+let startX = 0, startY = 0;
+let justSwiped = false;
+
+function pointerDown(x, y){
+  startX = x; startY = y;
+}
+function pointerUp(x, y){
+  const dx = x - startX;
+  const dy = y - startY;
+  const SWIPE_THRESHOLD = 45;
+
+  if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_THRESHOLD){
+    justSwiped = true;
+    if(dx < 0) goNext();   // 왼쪽으로 슬라이드
+    else goPrev();         // 오른쪽으로 슬라이드
+    setTimeout(()=>{ justSwiped = false; }, 300);
+  }
+}
+
+cardEl.addEventListener('touchstart', (e)=>{
+  const t = e.changedTouches[0];
+  pointerDown(t.clientX, t.clientY);
+}, {passive:true});
+cardEl.addEventListener('touchend', (e)=>{
+  const t = e.changedTouches[0];
+  pointerUp(t.clientX, t.clientY);
+}, {passive:true});
+cardEl.addEventListener('mousedown', (e)=>{
+  pointerDown(e.clientX, e.clientY);
+});
+cardEl.addEventListener('mouseup', (e)=>{
+  pointerUp(e.clientX, e.clientY);
+});
+
+// 일반 탭(클릭)은 항상 뒤집기 — 스와이프 직후에만 무시
+cardEl.addEventListener('click', ()=>{
+  if(justSwiped) return;
+  flipCurrent();
+});
 
 document.getElementById('exitBtn').addEventListener('click', ()=>{
   try{
     window.close();
   }catch(e){}
-  // window.close() only works if the tab was opened by script;
-  // otherwise show a fallback message.
   setTimeout(()=>{
     if(!document.hidden){
       const overlay = document.createElement('div');
